@@ -30,6 +30,41 @@ struct WhistleTests {
     #expect(await calls.count == 0)
   }
 
+  #if arch(x86_64)
+    @Test("Intel rejects the ARM-only engine before downloading or writing files")
+    func refusesARMEngineOnIntel() async throws {
+      let root = try scratch()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let destination = root.appending(path: "Whistle")
+      let calls = DownloadCounter()
+      let installer = WhistleInstaller(
+        installRoot: destination, termsAccepted: { true },
+        download: { url in
+          await calls.record()
+          return url
+        })
+      var states = installer.updates.makeAsyncIterator()
+      _ = await states.next()
+      await installer.install()
+      #expect(
+        await states.next()
+          == .failed(WhistleInstallerError.unsupportedArchitecture.localizedDescription))
+      #expect(await calls.count == 0)
+      #expect(!FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @Test("Intel rejects the pinned ARM-only Parakeet runtime")
+    func refusesARMParakeetOnIntel() async {
+      let installer = ParakeetInstaller()
+      var states = installer.updates.makeAsyncIterator()
+      _ = await states.next()
+      await installer.install()
+      #expect(
+        await states.next()
+          == .failed(ParakeetInstallerError.unsupportedArchitecture.localizedDescription))
+    }
+  #endif
+
   @Test("Downloads must match the pinned size and sha256 exactly")
   func verifiesPinnedFiles() async throws {
     let root = try scratch()

@@ -65,40 +65,55 @@ jobs:
           if-no-files-found: error
 
   validate:
-    runs-on: macos-15
-    timeout-minutes: 45
+    name: macOS (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      OTTO_SWIFT_SOURCE_MODE: checkout
+      OTTO_SWIFT_TIMEOUT: 3600
     steps:
       - uses: actions/checkout@v4
       - name: Select Swift 6.2 toolchain
         run: |
           sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
           swift --version
+          test "$(uname -m)" = "${{ matrix.architecture }}"
+      - name: Test architecture verification
+        run: scripts/test-macos-architectures.sh
       - name: Build and test
         shell: bash
         run: |
           set -euo pipefail
           test_modules="$(
-            swift test list -Xswiftc -warnings-as-errors \
+            scripts/otto-swift test list -Xswiftc -warnings-as-errors \
               | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*Tests\)\..*/\1/p' \
               | sort -u
           )"
           test -n "$test_modules"
           while IFS= read -r module; do
             echo "::group::$module"
-            swift test --skip-build --filter "^${module}\\." -Xswiftc -warnings-as-errors
+            scripts/otto-swift test --skip-build --filter "^${module}\\." -Xswiftc -warnings-as-errors
             echo "::endgroup::"
           done <<< "$test_modules"
       - name: Check formatting
         run: xcrun swift-format lint --strict --recursive Sources Tests Package.swift
       - name: Build release
-        run: swift build -c release -Xswiftc -warnings-as-errors
+        run: scripts/otto-swift build -c release -Xswiftc -warnings-as-errors
       - name: Package ad-hoc development artifact
         run: scripts/package-macos.sh
       - name: Verify development artifact
         run: scripts/verify-release.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: Otto-development
+          name: Otto-universal-tested-${{ matrix.architecture }}
           path: |
             .build/distribution/Otto-*.zip
             .build/distribution/Otto-*.zip.sha256
