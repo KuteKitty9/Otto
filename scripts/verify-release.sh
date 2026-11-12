@@ -3,7 +3,8 @@ set -euo pipefail
 
 script_dir=${0:A:h}
 repository_root=${script_dir:h}
-archive=${OTTO_ARCHIVE:-${MUSE_ARCHIVE:-$repository_root/.build/distribution/Otto-0.1.0.zip}}
+version=${OTTO_VERSION:-${MUSE_VERSION:-0.1.0}}
+archive=${OTTO_ARCHIVE:-${MUSE_ARCHIVE:-$repository_root/.build/distribution/Otto-$version.zip}}
 verification_dir=$(mktemp -d /tmp/otto-release-verification.XXXXXX)
 trap '/bin/rm -rf "$verification_dir"' EXIT
 
@@ -11,6 +12,7 @@ trap '/bin/rm -rf "$verification_dir"' EXIT
 /usr/bin/shasum -a 256 -c "$archive.sha256"
 COPYFILE_DISABLE=1 /usr/bin/ditto --norsrc -x -k "$archive" "$verification_dir"
 app_bundle=$verification_dir/Otto.app
+"$script_dir/verify-macos-architectures.sh" "$app_bundle"
 /usr/bin/plutil -lint "$app_bundle/Contents/Info.plist"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app_bundle"
 test -s "$app_bundle/Contents/Resources/AppIcon.icns"

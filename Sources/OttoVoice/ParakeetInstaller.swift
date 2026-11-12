@@ -33,12 +33,15 @@ public enum ParakeetInstallationState: Sendable, Equatable {
 public enum ParakeetInstallerError: Error, LocalizedError {
   case checksum(name: String)
   case archive(String)
+  case unsupportedArchitecture
   case invalidInstallation(String)
 
   public var errorDescription: String? {
     switch self {
     case .checksum(let name): "The downloaded \(name) failed its checksum"
     case .archive(let detail): "Could not extract Parakeet: \(detail)"
+    case .unsupportedArchitecture:
+      "The bundled Parakeet engine requires Apple silicon. Choose another transcription provider on Intel."
     case .invalidInstallation(let detail): detail
     }
   }
@@ -76,10 +79,21 @@ public actor ParakeetInstaller {
     )
   }
 
+  public nonisolated static var supportsBundledEngine: Bool {
+    #if arch(arm64)
+      true
+    #else
+      false
+    #endif
+  }
+
   public func install() async {
     let staging = fileManager.temporaryDirectory
       .appending(path: "otto-parakeet-install-\(UUID().uuidString)")
     do {
+      guard Self.supportsBundledEngine else {
+        throw ParakeetInstallerError.unsupportedArchitecture
+      }
       try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
       continuation.yield(.downloadingRuntime)
       let (runtimeDownload, _) = try await URLSession.shared.download(from: Self.runtimeURL)

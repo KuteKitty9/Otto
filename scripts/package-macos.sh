@@ -21,26 +21,36 @@ case $distribution_dir in
     ;;
 esac
 
-"$script_dir/otto-swift" build \
-  -c "$configuration" \
-  -Xswiftc -warnings-as-errors
-binary_dir=$("$script_dir/otto-swift" build \
-  -c "$configuration" \
-  --show-bin-path | /usr/bin/tail -n 1)
-[[ -d $binary_dir ]] || {
-  print -u2 "Could not locate the guarded SwiftPM product directory."
-  exit 2
-}
+# Build each slice with SwiftPM's native build system. This preserves the resource
+# bundles and avoids switching to a different build system for universal output.
+architectures=(arm64 x86_64)
+executables=(Otto ottoctl otto-mcp otto-hermes-bridge otto-openai-agent otto-hookd ottod)
+typeset -A binary_dirs
+for architecture in "${architectures[@]}"; do
+  "$script_dir/otto-swift" build \
+    -c "$configuration" --arch "$architecture" \
+    -Xswiftc -warnings-as-errors
+  binary_dirs[$architecture]=$("$script_dir/otto-swift" build \
+    -c "$configuration" --arch "$architecture" \
+    --show-bin-path | /usr/bin/tail -n 1)
+  [[ -d ${binary_dirs[$architecture]} ]] || {
+    print -u2 "Could not locate the $architecture SwiftPM product directory."
+    exit 2
+  }
+done
+# Resources are architecture-independent; use the native build's bundles.
+binary_dir=${binary_dirs[$(/usr/bin/uname -m)]}
 
 /bin/mkdir -p "$distribution_dir"
 /bin/mkdir -p "$app_bundle/Contents/MacOS" "$app_bundle/Contents/Resources"
-/usr/bin/install -m 755 "$binary_dir/Otto" "$app_bundle/Contents/MacOS/Otto"
-/usr/bin/install -m 755 "$binary_dir/ottoctl" "$app_bundle/Contents/MacOS/ottoctl"
-/usr/bin/install -m 755 "$binary_dir/otto-mcp" "$app_bundle/Contents/MacOS/otto-mcp"
-/usr/bin/install -m 755 "$binary_dir/otto-hermes-bridge" "$app_bundle/Contents/MacOS/otto-hermes-bridge"
-/usr/bin/install -m 755 "$binary_dir/otto-openai-agent" "$app_bundle/Contents/MacOS/otto-openai-agent"
-/usr/bin/install -m 755 "$binary_dir/otto-hookd" "$app_bundle/Contents/MacOS/otto-hookd"
-/usr/bin/install -m 755 "$binary_dir/ottod" "$app_bundle/Contents/MacOS/ottod"
+for executable in "${executables[@]}"; do
+  slices=()
+  for architecture in "${architectures[@]}"; do
+    slices+=("${binary_dirs[$architecture]}/$executable")
+  done
+  /usr/bin/lipo -create "${slices[@]}" -output "$app_bundle/Contents/MacOS/$executable"
+  /bin/chmod 755 "$app_bundle/Contents/MacOS/$executable"
+done
 
 # Newer toolchains link back-deployment libraries such as libswiftCompatibilitySpan
 # through @rpath. macOS 26+ ships them, older supported systems need the bundled copy.
@@ -57,11 +67,14 @@ for executable in "$app_bundle"/Contents/MacOS/*(.); do
     /usr/bin/install -m 755 "${source_library[-1]}" "$app_bundle/Contents/MacOS/$library"
   done
   # Drop rpaths that only exist on the build machine (Xcode, Metal toolchain cryptex).
-  for rpath in ${(f)"$(/usr/bin/otool -l "$executable" | /usr/bin/awk '/cmd LC_RPATH/ { getline; getline; print $2 }')"}; do
+  for rpath in ${(f)"$(/usr/bin/otool -l "$executable" | /usr/bin/awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | /usr/bin/sort -u)"}; do
     [[ $rpath == @* || $rpath == /usr/lib/* ]] && continue
     /usr/bin/install_name_tool -delete_rpath "$rpath" "$executable"
   done
 done
+
+# Include back-deployment libraries in the architecture check before signing.
+"$script_dir/verify-macos-architectures.sh" "$app_bundle"
 
 /usr/bin/install -m 644 "$repository_root/packaging/Info.plist" "$app_bundle/Contents/Info.plist"
 /usr/bin/install -m 644 "$repository_root/packaging/AppIcon.icns" \

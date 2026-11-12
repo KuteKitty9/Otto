@@ -42,6 +42,38 @@ scripts/dev-app.sh reload
 It creates a local self-signed signing identity the first time it runs. Build logs go to
 `~/Library/Logs/Otto/dev-reloader.log`.
 
+## Intel and Apple silicon builds
+
+The macOS packaging script builds **both x86_64 (Intel) and arm64 (Apple silicon)**,
+then combines the app and every bundled helper into a universal application. Both
+architectures require macOS 15 or newer; building requires Xcode 26 / Swift 6.2.
+An Intel Mac does not need Rosetta.
+
+```sh
+OTTO_VERSION=0.2.17 scripts/package-macos.sh
+OTTO_VERSION=0.2.17 scripts/verify-release.sh
+```
+
+The ZIP is written to `.build/distribution/Otto-0.2.17.zip`, with a SHA-256 file.
+Packaging compiles both architectures and ad-hoc-signs the result by default.
+Verification checks both CPU slices and executes helper smoke tests on the host.
+It does not notarize the app. The existing DMG script uses this same universal ZIP.
+
+For a native Intel development build only:
+
+```sh
+scripts/otto-swift build -c release --arch x86_64 --jobs 2
+```
+
+The macOS CI matrix validates on Intel and Apple silicon and uploads universal ZIPs
+named `Otto-universal-tested-x86_64` and `Otto-universal-tested-arm64`.
+Passing CI is required before treating a new package as validated on both CPUs.
+Previously published upstream releases are unchanged and may still be ARM-only.
+
+The pinned optional **Parakeet** and **Whistle** installers currently ship ARM-only
+speech engines. On Intel they report that limitation before downloading; choose
+another transcription provider. This does not disable the rest of Otto.
+
 ## Test
 
 ```sh

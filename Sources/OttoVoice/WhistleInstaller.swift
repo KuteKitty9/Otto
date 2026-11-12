@@ -34,6 +34,7 @@ public enum WhistleInstallerError: Error, LocalizedError {
   case termsNotAccepted
   case size(name: String, expected: Int, actual: Int)
   case checksum(name: String)
+  case unsupportedArchitecture
   case invalidInstallation(String)
 
   public var errorDescription: String? {
@@ -42,6 +43,8 @@ public enum WhistleInstallerError: Error, LocalizedError {
     case .size(let name, let expected, let actual):
       "The downloaded \(name) is \(actual) bytes; \(expected) were expected"
     case .checksum(let name): "The downloaded \(name) failed its checksum"
+    case .unsupportedArchitecture:
+      "The bundled Whistle engine requires Apple silicon. Choose another transcription provider on Intel."
     case .invalidInstallation(let detail): detail
     }
   }
@@ -158,11 +161,22 @@ public actor WhistleInstaller {
         == nil ? .installed : .notInstalled)
   }
 
+  public nonisolated static var supportsBundledEngine: Bool {
+    #if arch(arm64)
+      true
+    #else
+      false
+    #endif
+  }
+
   public func install() async {
     let staging = fileManager.temporaryDirectory
       .appending(path: "otto-whistle-install-\(UUID().uuidString)")
     do {
       guard termsAccepted() else { throw WhistleInstallerError.termsNotAccepted }
+      guard Self.supportsBundledEngine else {
+        throw WhistleInstallerError.unsupportedArchitecture
+      }
       let candidate = staging.appending(path: "Whistle")
       try fileManager.createDirectory(at: candidate, withIntermediateDirectories: true)
       for (artifact, state) in [

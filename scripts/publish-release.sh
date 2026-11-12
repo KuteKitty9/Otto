@@ -88,7 +88,7 @@ with open(sys.argv[1], "w") as handle:
     json.dump(manifest, handle, indent=2)
 PY
 
-release_bin=$("$script_dir/otto-swift" build -c release --product otto-release --show-bin-path \
+release_bin=$("$script_dir/otto-swift" build -c release --arch "$(/usr/bin/uname -m)" --product otto-release --show-bin-path \
   | /usr/bin/tail -n 1)
 release_tool=$release_bin/otto-release
 [[ -x $release_tool ]] || {
